@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <link rel="shortcut icon" type="image/x-icon" href="favicon.ico">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wake On Lan</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+        }
+
+        body {
+            background: #f0f2f5;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .container {
+            max-width: 400px;
+            margin: 40px auto;
+            padding: 20px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        h1 {
+            color: #1a73e8;
+            text-align: center;
+            margin-bottom: 24px;
+            font-size: 24px;
+        }
+
+        .form-group {
+            margin-bottom: 16px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #5f6368;
+            font-size: 14px;
+        }
+
+        input {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #dadce0;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.2s;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: #1a73e8;
+        }
+
+        button {
+            width: 100%;
+            padding: 12px;
+            background: #1a73e8;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background 0.2s;
+            margin-bottom: 8px;
+        }
+
+        button:hover {
+            background: #1557b0;
+        }
+
+        button:disabled {
+            background: #dadce0;
+            cursor: not-allowed;
+        }
+
+        .button-danger {
+            background: #dc3545;
+        }
+
+        .button-danger:hover {
+            background: #c82333;
+        }
+
+        .logs-container {
+            position: relative;
+            margin-top: 24px;
+        }
+
+        .logs-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .logs-title {
+            color: #5f6368;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .clear-logs {
+            background: none;
+            color: #5f6368;
+            border: none;
+            font-size: 12px;
+            padding: 4px 8px;
+            margin: 0;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .clear-logs:hover {
+            background: #f1f3f4;
+            color: #1a73e8;
+            border-radius: 4px;
+        }
+
+        .logs {
+            padding: 16px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            min-width: 350px;
+            max-height: 250px;
+            overflow-y: auto;
+        }
+
+        .log-entry {
+            margin-bottom: 8px;
+            font-size: 14px;
+            color: #5f6368;
+        }
+
+        .success {
+            color: #0b8043;
+        }
+
+        .error {
+            color: #d93025;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        #loginForm, #controlPanel {
+            transition: opacity 0.3s;
+        }
+    </style>
+</head>
+<body>
+    <div class="container" id="loginForm">
+        <h1>Iniciar Sesión</h1>
+        <form id="loginForm" onsubmit="connect(); return false;">
+            <div class="form-group">
+                <label for="username">Usuario</label>
+                <input type="text" id="username" name="username" autocomplete="username" placeholder="Ingrese su usuario">
+            </div>
+            <div class="form-group">
+                <label for="password">Contraseña</label>
+                <input type="password" id="password" name="password" autocomplete="current-password" placeholder="Ingrese su contraseña">
+            </div>
+            <button type="submit">Conectar</button>
+        </form>
+    </div>
+
+    <div class="container hidden" id="controlPanel">
+        <h1>Panel de Control</h1>
+        <button id="powerButton" onclick="sendPowerCommand()">Encender PC</button>
+        <button class="button-danger" onclick="logout()">Salir</button>
+    </div>
+
+    <div class="container">
+        <div class="logs-container">
+            <div class="logs-header">
+                <span class="logs-title">Logs</span>
+                <button class="clear-logs" onclick="clearLogs()">Limpiar</button>
+            </div>
+            <div class="logs" id="logs"></div>
+        </div>
+    </div>
+
+    <script>
+        let client = null;
+        let username = '';
+
+        function addLog(message, type = '') {
+            const logs = document.getElementById('logs');
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            entry.textContent = `${new Date().toLocaleTimeString()}: ${message}`;
+            logs.appendChild(entry);
+            logs.scrollTop = logs.scrollHeight;
+        }
+
+        function clearLogs() {
+            const logs = document.getElementById('logs');
+            logs.innerHTML = '';
+        }
+
+        function connect() {
+            username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+
+            if (!username || !password) {
+                addLog('Por favor, complete todos los campos', 'error');
+                return;
+            }
+
+            client = new Paho.MQTT.Client(
+                "243431461cd247fcbedcef7aea6a9564.s1.eu.hivemq.cloud", // Host del broker
+                8884,                 // Puerto WebSocket seguro
+                "webclient-" + Math.random().toString(16).substr(2, 8)
+            );
+
+            client.onConnectionLost = onConnectionLost;
+            client.onMessageArrived = onMessageArrived;
+
+            try {
+                addLog('Conectando al servidor MQTT...');
+                client.connect({
+                    userName: username,
+                    password: password,
+                    useSSL: true,
+                    onSuccess: onConnect,
+                    onFailure: onFailure
+                });
+            } catch (error) {
+                addLog('Error al conectar: ' + error.message, 'error');
+            }
+        }
+
+        function onConnect() {
+            addLog('Conexión exitosa', 'success');
+            document.getElementById('loginForm').classList.add('hidden');
+            document.getElementById('controlPanel').classList.remove('hidden');
+         
+            client.subscribe("status/" + username);
+        }
+
+        function onFailure(error) {
+            addLog('Error de conexión: ' + error.errorMessage, 'error');
+        }
+
+        function onConnectionLost(responseObject) {
+            if (responseObject.errorCode !== 0) {
+                addLog('Conexión perdida: ' + responseObject.errorMessage, 'error');
+                logout();
+            }
+        }
+
+        function onMessageArrived(message) {
+            addLog('Mensaje recibido: ' + message.payloadString);
+        }
+
+        function sendPowerCommand() {
+            if (!client || !client.isConnected()) {
+                addLog('No hay conexión con el servidor', 'error');
+                return;
+            }
+
+            const message = new Paho.MQTT.Message(username);
+            message.destinationName = "command";
+            client.send(message);
+            addLog('Comando de encendido enviado', 'success');
+        }
+
+        function logout() {
+            if (client && client.isConnected()) {
+                client.disconnect();
+                addLog('Desconexión exitosa', 'success');
+            }
+            document.getElementById('controlPanel').classList.add('hidden');
+            document.getElementById('loginForm').classList.remove('hidden');
+            document.getElementById('username').value = '';
+            document.getElementById('password').value = '';
+            username = '';
+            client = null;
+        }
+    </script>
+</body>
+</html>
